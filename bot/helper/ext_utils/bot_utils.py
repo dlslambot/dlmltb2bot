@@ -151,6 +151,13 @@ def get_readable_message():
                     msg += f'\n<b>├ TEngine: </b><a href="https://www.qbittorrent.org">qBittorrent</a>'
                 except:
                     pass
+                if download.message.from_user.username:
+                    uname = f'<a href="tg://user?id={download.message.from_user.id}">{download.message.from_user.username}</a>'
+                else:
+                    uname = f'<a href="tg://user?id={download.message.from_user.id}">{download.message.from_user.first_name}</a>'
+                msg += f'\n<b>├ Source:</b> <code>{uname}</code> (<code>{download.message.from_user.id}</code>)'    
+                msg += f"\n<b>To Stop:</b> <code>/{BotCommands.CancelMirror} {download.gid()}</code>"
+            elif download.status() == MirrorStatus.STATUS_SEEDING:
                 msg += f"\n<b>└ Stop:</b> <code>/{BotCommands.CancelMirror} {download.gid()}</code>"
             elif download.status() == MirrorStatus.STATUS_SEEDING:
                 msg += f"\n<b>├ Size: </b>{download.size()}"
