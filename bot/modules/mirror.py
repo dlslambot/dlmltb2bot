@@ -1,5 +1,5 @@
 from base64 import b64encode
-from requests import utils as rutils, get as rget
+from requests import utils as rutils
 from re import match as re_match, search as re_search, split as re_split
 from time import sleep, time
 from os import path as ospath, remove as osremove, listdir, walk
@@ -11,17 +11,15 @@ from html import escape
 from telegram.ext import CommandHandler
 from telegram import InlineKeyboardMarkup
 
-from bot import Interval, INDEX_URL, BUTTON_FOUR_NAME, BUTTON_FOUR_URL, BUTTON_FIVE_NAME, BUTTON_FIVE_URL, \
-                BUTTON_SIX_NAME, BUTTON_SIX_URL, VIEW_LINK, aria2, QB_SEED, dispatcher, DOWNLOAD_DIR, \
-                download_dict, download_dict_lock, TG_SPLIT_SIZE, LOGGER, DB_URI, INCOMPLETE_TASK_NOTIFIER
+from bot import Interval, INDEX_URL, VIEW_LINK, aria2, QB_SEED, dispatcher, DOWNLOAD_DIR, \
+                download_dict, download_dict_lock, TG_SPLIT_SIZE, LOGGER, MEGA_KEY, DB_URI, INCOMPLETE_TASK_NOTIFIER
 from bot.helper.ext_utils.bot_utils import is_url, is_magnet, is_gdtot_link, is_mega_link, is_gdrive_link, get_content_type
 from bot.helper.ext_utils.fs_utils import get_base_name, get_path_size, split_file, clean_download
-from bot.helper.ext_utils.shortenurl import short_url
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException, NotSupportedExtractionArchive
 from bot.helper.mirror_utils.download_utils.aria2_download import add_aria2c_download
 from bot.helper.mirror_utils.download_utils.gd_downloader import add_gd_download
 from bot.helper.mirror_utils.download_utils.qbit_downloader import QbDownloader
-from bot.helper.mirror_utils.download_utils.mega_downloader import add_mega_download
+from bot.helper.mirror_utils.download_utils.mega_downloader import MegaDownloader
 from bot.helper.mirror_utils.download_utils.direct_link_generator import direct_link_generator
 from bot.helper.mirror_utils.download_utils.telegram_downloader import TelegramDownloadHelper
 from bot.helper.mirror_utils.status_utils.extract_status import ExtractStatus
@@ -108,7 +106,7 @@ class MirrorListener:
                 if ospath.isdir(m_path):
                     for dirpath, subdir, files in walk(m_path, topdown=False):
                         for file_ in files:
-                            if file_.endswith(".zip") or re_search(r'\.part0*1\.rar$|\.7z\.0*1$|\.zip\.0*1$', file_) \
+                            if file_.endswith((".zip", ".7z")) or re_search(r'\.part0*1\.rar$|\.7z\.0*1$|\.zip\.0*1$', file_) \
                                or (file_.endswith(".rar") and not re_search(r'\.part\d+\.rar$', file_)):
                                 m_path = ospath.join(dirpath, file_)
                                 if self.pswd is not None:
@@ -118,7 +116,7 @@ class MirrorListener:
                                 if result.returncode != 0:
                                     LOGGER.error('Unable to extract archive!')
                         for file_ in files:
-                            if file_.endswith((".rar", ".zip")) or re_search(r'\.r\d+$|\.7z\.\d+$|\.z\d+$|\.zip\.\d+$', file_):
+                            if file_.endswith((".rar", ".zip", ".7z")) or re_search(r'\.r\d+$|\.7z\.\d+$|\.z\d+$|\.zip\.\d+$', file_):
                                 del_path = ospath.join(dirpath, file_)
                                 osremove(del_path)
                     path = f'{DOWNLOAD_DIR}{self.uid}/{name}'
@@ -220,29 +218,19 @@ class MirrorListener:
                 msg += f'\n<b>Files: </b>{files}'
             msg += f'\n\n<b>cc: </b>{self.tag}'
             buttons = ButtonMaker()
-            link = short_url(link)
-            buttons.buildbutton("Drive Link", link)
+            buttons.buildbutton("☁️ Drive Link", link)
             LOGGER.info(f'Done Uploading {name}')
             if INDEX_URL is not None:
                 url_path = rutils.quote(f'{name}')
                 share_url = f'{INDEX_URL}/{url_path}'
                 if ospath.isdir(f'{DOWNLOAD_DIR}/{self.uid}/{name}'):
                     share_url += '/'
-                    share_url = short_url(share_url)
-                    buttons.buildbutton("Index Link", share_url)
+                    buttons.buildbutton("⚡ Index Link", share_url)
                 else:
-                    share_url = short_url(share_url)
-                    buttons.buildbutton("Index Link", share_url)
+                    buttons.buildbutton("⚡ Index Link", share_url)
                     if VIEW_LINK:
                         share_urls = f'{INDEX_URL}/{url_path}?a=view'
-                        share_urls = short_url(share_urls)
-                        buttons.buildbutton("View Link", share_urls)
-            if BUTTON_FOUR_NAME is not None and BUTTON_FOUR_URL is not None:
-                buttons.buildbutton(f"{BUTTON_FOUR_NAME}", f"{BUTTON_FOUR_URL}")
-            if BUTTON_FIVE_NAME is not None and BUTTON_FIVE_URL is not None:
-                buttons.buildbutton(f"{BUTTON_FIVE_NAME}", f"{BUTTON_FIVE_URL}")
-            if BUTTON_SIX_NAME is not None and BUTTON_SIX_URL is not None:
-                buttons.buildbutton(f"{BUTTON_SIX_NAME}", f"{BUTTON_SIX_URL}")
+                        buttons.buildbutton("🌐 View Link", share_urls)
             sendMarkup(msg, self.bot, self.message, InlineKeyboardMarkup(buttons.build_menu(2)))
             if self.isQbit and QB_SEED and not self.extract:
                 if self.isZip:
@@ -339,7 +327,12 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
             else:
                 tag = reply_to.from_user.mention_html(reply_to.from_user.first_name)
 
-        if not is_url(link) and not is_magnet(link) or len(link) == 0:
+        if (
+            not is_url(link)
+            and not is_magnet(link)
+            or len(link) == 0
+        ):
+
             if file is None:
                 reply_text = reply_to.text
                 if is_url(reply_text) or is_magnet(reply_text):
@@ -386,32 +379,6 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
                 LOGGER.info(str(e))
                 if str(e).startswith('ERROR:'):
                     return sendMessage(str(e), bot, message)
-    elif isQbit and not is_magnet(link) and not ospath.exists(link):
-        if link.endswith('.torrent') or "https://api.telegram.org/file/" in link:
-            content_type = None
-        else:
-            content_type = get_content_type(link)
-        if content_type is None or re_match(r'application/x-bittorrent|application/octet-stream', content_type):
-            try:
-                resp = rget(link, timeout=10, headers = {'user-agent': 'Wget/1.12'})
-                if resp.status_code == 200:
-                    file_name = str(time()).replace(".", "") + ".torrent"
-                    with open(file_name, "wb") as t:
-                        t.write(resp.content)
-                    link = str(file_name)
-                else:
-                    return sendMessage(f"{tag} ERROR: link got HTTP response: {resp.status_code}", bot, message)
-            except Exception as e:
-                error = str(e).replace('<', ' ').replace('>', ' ')
-                if error.startswith('No connection adapters were found for'):
-                    link = error.split("'")[1]
-                else:
-                    LOGGER.error(str(e))
-                    return sendMessage(tag + " " + error, bot, message)
-        else:
-            msg = "Qb commands for torrents only. if you are trying to dowload torrent then report."
-            return sendMessage(msg, bot, message)
-
 
     listener = MirrorListener(bot, message, isZip, extract, isQbit, isLeech, pswd, tag)
 
@@ -424,8 +391,11 @@ def _mirror(bot, message, isZip=False, extract=False, isQbit=False, isLeech=Fals
         else:
             Thread(target=add_gd_download, args=(link, listener, is_gdtot)).start()
     elif is_mega_link(link):
-        Thread(target=add_mega_download, args=(link, f'{DOWNLOAD_DIR}{listener.uid}/', listener)).start()
-    elif isQbit and (is_magnet(link) or ospath.exists(link)):
+        if MEGA_KEY is not None:
+            Thread(target=MegaDownloader(listener).add_download, args=(link, f'{DOWNLOAD_DIR}{listener.uid}/')).start()
+        else:
+            sendMessage('MEGA_API_KEY not Provided!', bot, message)
+    elif isQbit:
         Thread(target=QbDownloader(listener).add_qb_torrent, args=(link, f'{DOWNLOAD_DIR}{listener.uid}', qbitsel)).start()
     else:
         if len(mesg) > 1:
