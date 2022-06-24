@@ -32,6 +32,10 @@ class MirrorStatus:
     STATUS_SPLITTING = "Splitting...✂️"
     STATUS_CHECKING = "CheckingUp...📝"
     STATUS_SEEDING = "Seeding...🌧"
+    
+    
+    PROGRESS_MAX_SIZE = 100 // 8
+PROGRESS_INCOMPLETE = ['○', '◔', '◑', '◕', '⬤']
 
 SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
 
@@ -105,10 +109,12 @@ def get_progress_bar_string(status):
     total = status.size_raw() / 8
     p = 0 if total == 0 else round(completed * 100 / total)
     p = min(max(p, 0), 100)
-    cFull = p // 6
-    p_str = '●' * cFull
-    p_str += '○' * (16 - cFull)
-    p_str = f"{p_str}"
+    cFull = p // 8
+    cPart = p % 8 - 1
+    p_str = '⬤' * cFull
+    max_size = 100 // 8
+    p_str += '○' * (max_size - cFull)
+    p_str = f"[{p_str}]"
     return p_str
 
 def get_readable_message():
@@ -155,8 +161,8 @@ def get_readable_message():
                     uname = f'<a href="tg://user?id={download.message.from_user.id}">{download.message.from_user.username}</a>'
                 else:
                     uname = f'<a href="tg://user?id={download.message.from_user.id}">{download.message.from_user.first_name}</a>'
-                msg += f'\n<b>├ Source:</b> <code>{uname}</code> (<code>{download.message.from_user.id}</code>)'    
-                msg += f"\n<b>To Stop:</b> <code>/{BotCommands.CancelMirror} {download.gid()}</code>"
+                msg += f'\n<b>├ Source: </b><a href="{download.message.link}">{download.message.from_user.first_name}</a>'   
+                msg += f"\n<b>└ To Stop:</b> <code>/{BotCommands.CancelMirror} {download.gid()}</code>"
             elif download.status() == MirrorStatus.STATUS_SEEDING:
                 msg += f"\n<b>└ Stop:</b> <code>/{BotCommands.CancelMirror} {download.gid()}</code>"
             elif download.status() == MirrorStatus.STATUS_SEEDING:
